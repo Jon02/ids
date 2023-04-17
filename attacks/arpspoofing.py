@@ -1,18 +1,20 @@
-import pyshark
+from scapy.data import ETHER_BROADCAST
+from scapy.layers.l2 import Ether, ARP
+from scapy.sendrecv import srp
 
 
-def start():
-    capture = pyshark.LiveCapture(interface='\\Device\\NPF_{4186B5FC-9B56-40E4-AD57-6E1835174B67}', display_filter="arp && arp.opcode == 2")
-    detect(capture.sniff_continuously(packet_count=50))
+def get_mac(ip, interface, interface_mac):
+    packet = Ether(dst=ETHER_BROADCAST) / ARP(op=1, pdst=ip, hwsrc=interface_mac)
+    response = srp(packet, verbose=False, timeout=2, iface=interface)[0]
+    return response[0][1][ARP].hwsrc
 
 
-def detect(packets):
-    ip = {}
+def detect(packet, interface, interface_mac):
+    ip = packet.arp.src_proto_ipv4
+    mac = packet.arp.src_hw_mac
 
-    for packet in packets:
-        if packet.eth.addr in ip:
-            print("ARP Spoofing detected!")
-        else:
-            ip[packet.eth.addr] = packet.arp.src_proto_ipv4
+    real_mac = get_mac(ip, interface, interface_mac)
 
-    print(ip)
+    if mac != real_mac:
+        print("Someone is poisoning my ARP Cache! :/ :c >:C ;d It is: " + mac + " with IP " + ip)
+
